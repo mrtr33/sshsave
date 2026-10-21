@@ -3,124 +3,136 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
-	"os"
+	"strings"
 	"syscall"
 
-	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/term"
 )
 
 const (
-	// Encryption parameters
-	keySize    = 32 // AES-256
-	iterations = 100000
-	saltSize   = 32
+	keySize = 32 // AES-256
+
+	// Current format: "v2:" + base64(salt + nonce + ciphertext + tag),
+	// key derived with Argon2id
+	v2Prefix     = "v2:"
+	v2SaltSize   = 16
+	argonTime    = 3
+	argonMemory  = 64 * 1024 // KiB
+	argonThreads = 4
+
+	// Legacy format: base64(salt + nonce + ciphertext + tag), key derived
+	// with PBKDF2-SHA256. Still decrypted, never written.
+	legacySaltSize   = 32
+	legacyIterations = 100000
 )
 
-// DeriveKey derives an encryption key from a master password and salt
-func DeriveKey(password string, salt []byte) []byte {
-	return pbkdf2.Key([]byte(password), salt, iterations, keySize, sha256.New)
+// ErrWrongPassword is returned when a value does not decrypt, which almost
+// always means the master password is wrong
+var ErrWrongPassword = errors.New("wrong master password (or corrupted data)")
+
+func deriveKeyV2(password string, salt []byte) []byte {
+	return argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, keySize)
 }
 
-// GenerateSalt generates a random salt for key derivation
-func GenerateSalt() ([]byte, error) {
-	salt := make([]byte, saltSize)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, fmt.Errorf("failed to generate salt: %w", err)
+func deriveKeyLegacy(password string, salt []byte) ([]byte, error) {
+	return pbkdf2.Key(sha256.New, password, salt, legacyIterations, keySize)
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
-	return salt, nil
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+	return gcm, nil
 }
 
-// Encrypt encrypts plaintext using AES-GCM with the given password
-// Returns: base64(salt + nonce + ciphertext + tag)
+// Encrypt encrypts plaintext using AES-256-GCM with a key derived from
+// password with Argon2id
 func Encrypt(plaintext, password string) (string, error) {
-	// Generate a random salt
-	salt, err := GenerateSalt()
+	salt := make([]byte, v2SaltSize)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	gcm, err := newGCM(deriveKeyV2(password, salt))
 	if err != nil {
 		return "", err
 	}
 
-	// Derive key from password and salt
-	key := DeriveKey(password, salt)
-
-	// Create AES cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %w", err)
-	}
-
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	// Generate a random nonce
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Encrypt the plaintext
-	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
-
 	// Combine salt + nonce + ciphertext
 	combined := append(salt, nonce...)
-	combined = append(combined, ciphertext...)
+	combined = gcm.Seal(combined, nonce, []byte(plaintext), nil)
 
-	// Encode to base64
-	return base64.StdEncoding.EncodeToString(combined), nil
+	return v2Prefix + base64.StdEncoding.EncodeToString(combined), nil
 }
 
-// Decrypt decrypts ciphertext using AES-GCM with the given password
+// Decrypt decrypts a value produced by Encrypt, or by older versions that
+// used PBKDF2
 func Decrypt(encodedCiphertext, password string) (string, error) {
-	// Decode from base64
-	combined, err := base64.StdEncoding.DecodeString(encodedCiphertext)
+	legacy := !strings.HasPrefix(encodedCiphertext, v2Prefix)
+
+	combined, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(encodedCiphertext, v2Prefix))
 	if err != nil {
 		return "", fmt.Errorf("failed to decode ciphertext: %w", err)
 	}
 
-	// Extract salt
+	saltSize := v2SaltSize
+	if legacy {
+		saltSize = legacySaltSize
+	}
 	if len(combined) < saltSize {
 		return "", fmt.Errorf("ciphertext too short")
 	}
-	salt := combined[:saltSize]
-	combined = combined[saltSize:]
+	salt, combined := combined[:saltSize], combined[saltSize:]
 
-	// Derive key from password and salt
-	key := DeriveKey(password, salt)
-
-	// Create AES cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %w", err)
+	var key []byte
+	if legacy {
+		key, err = deriveKeyLegacy(password, salt)
+		if err != nil {
+			return "", fmt.Errorf("failed to derive key: %w", err)
+		}
+	} else {
+		key = deriveKeyV2(password, salt)
 	}
 
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := newGCM(key)
 	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
+		return "", err
 	}
 
-	// Extract nonce
 	nonceSize := gcm.NonceSize()
 	if len(combined) < nonceSize {
 		return "", fmt.Errorf("ciphertext too short")
 	}
-	nonce := combined[:nonceSize]
-	ciphertext := combined[nonceSize:]
+	nonce, ciphertext := combined[:nonceSize], combined[nonceSize:]
 
-	// Decrypt
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to decrypt: %w", err)
+		return "", ErrWrongPassword
 	}
 
 	return string(plaintext), nil
+}
+
+// NeedsUpgrade reports whether an encrypted value uses the legacy format
+func NeedsUpgrade(encodedCiphertext string) bool {
+	return encodedCiphertext != "" && !strings.HasPrefix(encodedCiphertext, v2Prefix)
 }
 
 // ReadPassword reads a password from stdin without echoing
@@ -179,13 +191,4 @@ func SetMasterPassword() (string, error) {
 	}
 
 	return string(password1), nil
-}
-
-// GetMasterPasswordFile returns the path to the master password file
-func GetMasterPasswordFile() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s/.config/sshlauncher/.master", homeDir), nil
 }

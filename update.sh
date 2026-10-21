@@ -4,7 +4,7 @@
 set -e
 
 echo "Building sshsave..."
-go build -o sshsave .
+go build -ldflags "-X github.com/mrtr33/sshsave/cmd.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o sshsave .
 
 echo "Build successful"
 echo ""

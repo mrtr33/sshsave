@@ -23,49 +23,56 @@ and handed to ssh through SSH_ASKPASS, so it is never shown on screen.
 
 Examples:
   sshsave run work
-  sshsave run w    # using an alias`,
+  sshsave run w    # using an alias
+  sshsave work     # same as "sshsave run work"`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeEntryNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		nameOrAlias := args[0]
-
-		// Load config
-		cfg, err := storage.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		// Find entry by name or alias
-		entry, name, found := cfg.FindEntry(nameOrAlias)
-		if !found {
-			return fmt.Errorf("entry '%s' not found", nameOrAlias)
-		}
-
-		fmt.Printf("Running '%s': %s\n", name, entry.Command)
-
-		// Handle encrypted secrets if present
-		var env []string
-		if entry.UseSecret && entry.EncryptedSecret != "" {
-			// Get master password
-			masterPassword, err := crypto.PromptForMasterPassword()
-			if err != nil {
-				return fmt.Errorf("failed to get master password: %w", err)
-			}
-
-			// Decrypt the secret
-			secret, err := crypto.Decrypt(entry.EncryptedSecret, masterPassword)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt secret: %w", err)
-			}
-
-			env, err = askpass.Env(secret)
-			if err != nil {
-				return err
-			}
-		}
-
-		return executor.Run(entry.Command, env)
+		return runEntry(args[0])
 	},
+}
+
+// runEntry runs the entry with the given name or alias
+func runEntry(nameOrAlias string) error {
+	// Load config
+	cfg, err := storage.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Find entry by name or alias
+	entry, name, found := cfg.FindEntry(nameOrAlias)
+	if !found {
+		return fmt.Errorf("entry '%s' not found", nameOrAlias)
+	}
+
+	fmt.Printf("Running '%s': %s\n", name, entry.Command)
+
+	// Handle encrypted secrets if present
+	var env []string
+	if entry.UseSecret && entry.EncryptedSecret != "" {
+		// Get master password
+		masterPassword, err := crypto.PromptForMasterPassword()
+		if err != nil {
+			return fmt.Errorf("failed to get master password: %w", err)
+		}
+
+		// Decrypt the secret
+		secret, err := crypto.Decrypt(entry.EncryptedSecret, masterPassword)
+		if err != nil {
+			return err
+		}
+
+		// Re-encrypt secrets still using the old key derivation
+		upgradeSecrets(cfg, masterPassword)
+
+		env, err = askpass.Env(secret)
+		if err != nil {
+			return err
+		}
+	}
+
+	return executor.Run(entry.Command, env)
 }
 
 // completeEntryNames completes saved entry names and aliases

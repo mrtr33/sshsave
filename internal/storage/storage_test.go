@@ -192,3 +192,53 @@ func TestNames(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateEntrySetsExactAliases(t *testing.T) {
+	cfg := NewConfig()
+	cfg.AddEntry("work", "ssh w", []string{"w", "x"}, false)
+	cfg.Entries["work"].EncryptedSecret = "enc"
+
+	if err := cfg.UpdateEntry("work", "ssh new", nil); err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Entries["work"]
+	if e.Command != "ssh new" || len(e.Alias) != 0 || e.EncryptedSecret != "enc" {
+		t.Errorf("unexpected entry %+v", e)
+	}
+	if err := cfg.UpdateEntry("missing", "ssh m", nil); err == nil {
+		t.Error("expected error for missing entry")
+	}
+}
+
+func TestRenameEntry(t *testing.T) {
+	cfg := NewConfig()
+	cfg.AddEntry("work", "ssh w", []string{"w"}, false)
+	cfg.AddEntry("home", "ssh h", []string{"h"}, false)
+
+	old, err := cfg.RenameEntry("w", "office")
+	if err != nil || old != "work" {
+		t.Fatalf("RenameEntry = %q, %v", old, err)
+	}
+	if _, ok := cfg.Entries["office"]; !ok {
+		t.Error("new name missing")
+	}
+	if _, ok := cfg.Entries["work"]; ok {
+		t.Error("old name still present")
+	}
+	if _, name, _ := cfg.FindEntry("w"); name != "office" {
+		t.Errorf("alias now points to %q", name)
+	}
+
+	for _, bad := range []string{"home", "h", "w"} {
+		if _, err := cfg.RenameEntry("office", bad); err == nil {
+			t.Errorf("rename to %q should fail", bad)
+		}
+		if _, ok := cfg.Entries["office"]; !ok {
+			t.Fatalf("failed rename to %q lost the entry", bad)
+		}
+	}
+
+	if _, err := cfg.RenameEntry("missing", "x"); err == nil {
+		t.Error("expected error for missing entry")
+	}
+}

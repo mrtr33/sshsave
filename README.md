@@ -16,6 +16,16 @@ A lightweight CLI tool for managing SSH connection shortcuts with support for al
 
 ## Installation
 
+### Prebuilt binaries
+
+Download the archive for your platform (Linux or macOS, amd64 or arm64) from the
+[releases page](https://github.com/mrtr33/sshsave/releases), then:
+
+```bash
+tar xzf sshsave_*_linux_amd64.tar.gz
+install -m 0755 sshsave ~/.local/bin/
+```
+
 ### With `go install`
 
 ```bash
@@ -120,8 +130,8 @@ sshsave list
 
 # Run a shortcut
 sshsave run work
-# or use an alias
-sshsave run w
+# or use an alias, or leave out "run"
+sshsave w
 
 # Remove a shortcut
 sshsave rm work
@@ -170,9 +180,11 @@ sshsave add admin "ssh root@server.com" --with-sudo-password
 4. The decrypted secret is handed to ssh through `SSH_ASKPASS` (sshsave acts as its own askpass helper), so it is never shown on screen. Host key confirmations are still asked from you on the terminal. Requires OpenSSH 8.4 or newer.
 
 **Security notes:**
-- Secrets are encrypted using AES-256-GCM with PBKDF2 key derivation
+- Secrets are encrypted using AES-256-GCM with Argon2id key derivation
 - Master password is never stored, only used for encryption/decryption
 - Each secret uses a unique salt and nonce
+- All secrets share one master password; adding a secret with a different one is refused
+- Secrets written by versions before 0.2 (PBKDF2) are still read, and are re-encrypted with Argon2id the next time you run an entry with the master password
 - Encrypted data is stored in `~/.config/sshlauncher/sshlauncher.json` (mode 0600, directory 0700)
 - Secrets can only be entered at a prompt, never as command-line arguments
 
@@ -203,9 +215,12 @@ Execute a saved SSH shortcut by name or alias.
 ```bash
 sshsave run work
 sshsave run w  # using an alias
+sshsave work   # "run" can be left out
 ```
 
 If the entry has an encrypted secret, you'll be prompted for your master password.
+
+Commands take precedence over entry names, so an entry called e.g. `list` has to be run with `sshsave run list`.
 
 ### `sshsave list`
 
@@ -215,12 +230,45 @@ Entries with encrypted secrets are marked with `[encrypted]`.
 
 ### `sshsave rm <name>`
 
-Remove a saved SSH shortcut entry.
+Remove a saved SSH shortcut entry (by name or alias).
 
 **Example:**
 ```bash
 sshsave rm work
 ```
+
+### `sshsave rename <name> <new-name>`
+
+Rename an entry. Its command, aliases and secrets are kept.
+
+```bash
+sshsave rename work office
+```
+
+### `sshsave edit <name>`
+
+Change parts of an entry without re-creating it.
+
+**Flags:**
+- `--command <cmd>` - New SSH command
+- `--add-alias <name>` / `--remove-alias <name>` - Change aliases (can be repeated)
+- `--with-secret` / `--clear-secret` - Set (prompted) or remove the SSH secret
+- `--with-sudo-password` / `--clear-sudo-password` - Set (prompted) or remove the sudo password
+
+```bash
+sshsave edit work --command "ssh me@10.0.0.5 -p 2222" --add-alias w
+sshsave edit work --with-secret
+```
+
+### `sshsave passwd`
+
+Change the master password. Every stored secret is decrypted with the current
+master password and re-encrypted with the new one; if any secret does not
+decrypt, nothing is changed.
+
+### `sshsave --version`
+
+Print the version.
 
 ### `sshsave import`
 
@@ -290,7 +338,7 @@ Both files are written to a temporary file first and renamed into place, so an i
 ## Security Considerations
 
 - No passwords or SSH keys are stored in plain text
-- Encrypted secrets use AES-256-GCM with PBKDF2 key derivation
+- Encrypted secrets use AES-256-GCM with Argon2id key derivation
 - Master password is never stored on disk
 - Each encrypted value has a unique salt and nonce
 - Only literal commands provided by user are stored
@@ -311,6 +359,16 @@ go build -o sshsave .
 go test ./...
 ```
 
+### Releasing
+
+Pushing a `v*` tag builds binaries with [GoReleaser](https://goreleaser.com) and
+publishes them as a GitHub release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
 ### Project Structure
 
 ```
@@ -321,6 +379,10 @@ sshsave/
 │   ├── list.go            # List entries
 │   ├── run.go             # Execute entries
 │   ├── rm.go              # Remove entries
+│   ├── rename.go          # Rename entries
+│   ├── edit.go            # Edit entries
+│   ├── passwd.go          # Change master password
+│   ├── secrets.go         # Shared secret handling and upgrades
 │   ├── import.go          # Import from SSH config
 │   └── completion.go      # Shell completion
 ├── internal/

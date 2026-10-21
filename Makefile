@@ -3,15 +3,17 @@
 BINARY_NAME=sshsave
 INSTALL_PATH=/usr/local/bin
 CONFIG_DIR=$$HOME/.config/sshlauncher
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS=-X github.com/mrtr33/sshsave/cmd.version=$(VERSION)
 
 help: ## Show this help message
-	@echo "SSHLauncher - Makefile commands:"
+	@echo "sshsave - Makefile commands:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
-	@go build -o $(BINARY_NAME) .
+	@go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 	@echo "Build complete: ./$(BINARY_NAME)"
 
 install: build ## Build and install system-wide (requires sudo)

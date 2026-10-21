@@ -75,15 +75,13 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to get master password: %w", err)
 			}
+			if err := verifyMaster(cfg, masterPassword); err != nil {
+				return err
+			}
 
 			// Encrypt SSH secret/passphrase if requested
 			if addWithSecret {
-				secret, err := crypto.ReadPassword("Enter SSH passphrase/password to encrypt: ")
-				if err != nil {
-					return fmt.Errorf("failed to read secret: %w", err)
-				}
-
-				encrypted, err := crypto.Encrypt(secret, masterPassword)
+				encrypted, err := promptAndEncrypt("Enter SSH passphrase/password to encrypt: ", masterPassword)
 				if err != nil {
 					return fmt.Errorf("failed to encrypt secret: %w", err)
 				}
@@ -94,12 +92,7 @@ Examples:
 
 			// Encrypt sudo password if requested
 			if addSudoPassword {
-				sudoPassword, err := crypto.ReadPassword("Enter sudo password to encrypt: ")
-				if err != nil {
-					return fmt.Errorf("failed to read sudo password: %w", err)
-				}
-
-				encrypted, err := crypto.Encrypt(sudoPassword, masterPassword)
+				encrypted, err := promptAndEncrypt("Enter sudo password to encrypt: ", masterPassword)
 				if err != nil {
 					return fmt.Errorf("failed to encrypt sudo password: %w", err)
 				}

@@ -201,14 +201,12 @@ func (c *Config) AddEntry(name string, command string, aliases []string, force b
 		aliases = []string{}
 	}
 
-	if err := c.checkConflicts(name, aliases); err != nil {
-		return err
+	if exists {
+		return c.UpdateEntry(name, command, aliases)
 	}
 
-	if exists {
-		existing.Command = command
-		existing.Alias = aliases
-		return nil
+	if err := c.checkConflicts(name, aliases); err != nil {
+		return err
 	}
 
 	c.Entries[name] = &Entry{
@@ -217,6 +215,51 @@ func (c *Config) AddEntry(name string, command string, aliases []string, force b
 	}
 
 	return nil
+}
+
+// UpdateEntry sets the command and exact alias list of an existing entry,
+// keeping its secrets
+func (c *Config) UpdateEntry(name string, command string, aliases []string) error {
+	entry, exists := c.Entries[name]
+	if !exists {
+		return fmt.Errorf("entry '%s' not found", name)
+	}
+	if aliases == nil {
+		aliases = []string{}
+	}
+
+	if err := c.checkConflicts(name, aliases); err != nil {
+		return err
+	}
+
+	entry.Command = command
+	entry.Alias = aliases
+	return nil
+}
+
+// RenameEntry renames the entry found by name or alias and returns its old name
+func (c *Config) RenameEntry(nameOrAlias string, newName string) (string, error) {
+	entry, oldName, found := c.FindEntry(nameOrAlias)
+	if !found {
+		return "", fmt.Errorf("entry '%s' not found", nameOrAlias)
+	}
+	if newName == oldName {
+		return oldName, nil
+	}
+	if _, exists := c.Entries[newName]; exists {
+		return "", fmt.Errorf("entry '%s' already exists", newName)
+	}
+
+	// Check against all other entries, including the new name clashing with
+	// one of this entry's own aliases
+	delete(c.Entries, oldName)
+	if err := c.checkConflicts(newName, entry.Alias); err != nil {
+		c.Entries[oldName] = entry
+		return "", err
+	}
+
+	c.Entries[newName] = entry
+	return oldName, nil
 }
 
 // RemoveEntry removes an entry by name or alias and returns the removed name
