@@ -14,6 +14,8 @@ A lightweight CLI tool for managing SSH connection shortcuts with support for al
 - No passwords or sensitive info stored in plain text
 - JSON-based storage with automatic backups
 
+> **Disclaimer:** provided as is, without warranty. Use at your own risk; see [Disclaimer](#disclaimer).
+
 ## Installation
 
 ### Prebuilt binaries
@@ -401,6 +403,20 @@ sshsave/
 - Go 1.25+ (to build)
 - OpenSSH 8.4+ (for stored secrets, which use `SSH_ASKPASS_REQUIRE`)
 - Linux, macOS, or Windows with WSL
+
+## Disclaimer
+
+sshsave is a hobby project provided "as is", without warranty of any kind. The
+author is not responsible for any damage, data loss, lost access to servers,
+leaked credentials or other consequences of using it. Use it at your own risk.
+
+- The encryption has not been independently audited. Do not rely on it as your
+  only protection for important credentials.
+- If you forget the master password, stored secrets cannot be recovered.
+- Keep your own backups of `~/.config/sshlauncher/` and of the credentials it holds.
+- Where possible, prefer SSH keys with `ssh-agent` over stored passwords.
+
+See the [LICENSE](LICENSE) for the full terms.
 
 ## License
 
