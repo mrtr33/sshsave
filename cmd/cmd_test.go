@@ -122,3 +122,24 @@ func TestUpgradeSecretsNoopDoesNotSave(t *testing.T) {
 		t.Error("config should not be written when nothing is upgraded")
 	}
 }
+
+func TestCopyIDCommand(t *testing.T) {
+	cases := map[string]string{
+		"ssh me@host":                       "ssh-copy-id me@host",
+		"ssh me@host -p 2222":               "ssh-copy-id -p 2222 me@host",
+		"ssh -p2222 me@host":                "ssh-copy-id -p2222 me@host",
+		"ssh -i ~/.ssh/k -o Port=22 me@h":   "ssh-copy-id -i ~/.ssh/k -o Port=22 me@h",
+		"ssh -4 me@host -J jump@bastion -v": "ssh-copy-id -4 -J jump@bastion -v me@host",
+	}
+	for in, want := range cases {
+		got, err := copyIDCommand(in)
+		if err != nil || got != want {
+			t.Errorf("copyIDCommand(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"mosh me@host", "ssh", "ssh -p 22", "ssh me@host uptime"} {
+		if _, err := copyIDCommand(bad); err == nil {
+			t.Errorf("copyIDCommand(%q) should fail", bad)
+		}
+	}
+}

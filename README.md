@@ -190,6 +190,15 @@ sshsave add admin "ssh root@server.com" --with-sudo-password
 - Encrypted data is stored in `~/.config/sshlauncher/sshlauncher.json` (mode 0600, directory 0700)
 - Secrets can only be entered at a prompt, never as command-line arguments
 
+#### Switching to key login
+
+Forgot a stored password, or tired of typing the master password? `sshsave show` prints the stored secrets, and `sshsave key` installs your SSH key on the host using the stored password, then offers to drop it:
+
+```bash
+sshsave show secure   # prints the SSH secret and sudo password after the master password
+sshsave key secure    # ssh-copy-id with the stored password; afterwards "sshsave secure" asks nothing
+```
+
 ## Commands
 
 ### `sshsave add <name> <ssh-command>`
@@ -221,6 +230,14 @@ sshsave work   # "run" can be left out
 ```
 
 If the entry has an encrypted secret, you'll be prompted for your master password.
+
+### `sshsave show <name>`
+
+Print the stored SSH secret and sudo password of an entry, after the master password.
+
+### `sshsave key <name>`
+
+Install your public key on the entry's host with `ssh-copy-id`. A stored secret is handed to `ssh-copy-id` automatically, and afterwards you can remove it so the entry logs in with the key alone. Needs a key pair (`ssh-keygen -t ed25519`).
 
 Commands take precedence over entry names, so an entry called e.g. `list` has to be run with `sshsave run list`.
 
